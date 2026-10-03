@@ -8,8 +8,9 @@ from google import genai
 from google.genai import types
 
 from prompts import SUMMARY_REQUEST_PROMPT, SYSTEM_PROMPT, WELCOME_MESSAGE_TEMPLATE
-
-MODEL_NAME = "gemini-3.8-flash"  # if you get a "model not found" error, try "gemini-2.5-flash"
+ 
+MODEL_NAME = "gemini-3.8-flash" # if you get a "model not found" error, try "gemini-2.5-flash"
+FALLBACK_MODEL = "gemini-3.5-flash"
 
 st.set_page_config(page_title="SnapStudy", page_icon="📚")
 
@@ -41,16 +42,25 @@ def add_message(role, kind, content):
 
 def ask_gemini(parts):
     last_error = None
-    for attempt in range(4):
-        try:
-            return st.session_state.chat.send_message(parts).text
-        except Exception as error:
-            last_error = error
-            if "503" in str(error) or "UNAVAILABLE" in str(error):
-                time.sleep(3 * (attempt + 1))  # wait 3s, 6s, 9s, 12s, then retry
-            else:
-                break
-    return f"Sorry, something went wrong: {last_error}"
+    for model in [MODEL_NAME, FALLBACK_MODEL]:
+        if st.session_state.get("active_model") != model:
+            history = st.session_state.chat.get_history()
+            st.session_state.chat = gemini_client.chats.create(
+                model=model,
+                config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
+                history=history,
+            )
+            st.session_state.active_model = model
+        for attempt in range(3):
+            try:
+                return st.session_state.chat.send_message(parts).text
+            except Exception as error:
+                last_error = error
+                if "503" in str(error) or "UNAVAILABLE" in str(error):
+                    time.sleep(4 * (attempt + 1))
+                else:
+                    break
+    return f"Sorry, the AI is very busy right now. Please try again in a minute. ({last_error})"
 
 
 def is_valid_email(address):
